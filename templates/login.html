@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card small">
+    <h2>Student Login</h2>
+    <form method="POST" class="form-grid">
+        <label>Roll Number</label>
+        <input type="text" name="roll_no" required>
+
+        <label>Password</label>
+        <input type="password" name="password" required>
+
+        <button type="submit">Login</button>
+    </form>
+    <p class="hint">New student? <a href="{{ url_for('register') }}">Register here</a></p>
+</div>
+{% endblock %}

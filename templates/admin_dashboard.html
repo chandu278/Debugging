@@ -1,0 +1,192 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+    <h2>Admin Dashboard</h2>
+    <div class="admin-top-actions">
+        <a class="export-link" href="{{ url_for('admin_export_csv') }}">Export Results CSV</a>
+        <form method="POST" action="{{ url_for('admin_clear_submissions') }}" onsubmit="return confirm('Delete all submissions?');">
+            <button class="danger-btn small-btn" type="submit">Delete All Submissions</button>
+        </form>
+        <form method="POST" action="{{ url_for('admin_clear_users') }}" onsubmit="return confirm('Delete all users and all submissions?');">
+            <button class="danger-btn small-btn" type="submit">Delete All Users</button>
+        </form>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card"><h4>Users</h4><p>{{ stats['users'] }}</p></div>
+        <div class="stat-card"><h4>Submissions</h4><p>{{ stats['submissions'] }}</p></div>
+        <div class="stat-card"><h4>Questions</h4><p>{{ stats['questions'] }}</p></div>
+    </div>
+
+    <div class="section">
+        <h3>Add New Question</h3>
+        <p class="hint">You can add any number of questions. No fixed limit.</p>
+        <form method="POST" action="{{ url_for('admin_create_question') }}" class="form-grid">
+            <label>Question Title</label>
+            <input type="text" name="title" placeholder="Example: Question 2 - Loop Fix" required>
+
+            <label>Question Language</label>
+            <select name="language" required>
+                {% for lang_key, lang_label in supported_languages.items() %}
+                    <option value="{{ lang_key }}">{{ lang_label }}</option>
+                {% endfor %}
+            </select>
+
+            <label>Faulty Code (shown to students)</label>
+            <textarea name="faulty_code" rows="8" required></textarea>
+
+            <label>Correct Code (admin reference)</label>
+            <textarea name="correct_code" rows="8" required></textarea>
+
+            <label>Expected Output</label>
+            <textarea name="expected_output" rows="3" required></textarea>
+
+            <label>Points</label>
+            <input type="number" name="points" value="10" min="1" required>
+
+            <button type="submit">Add Question</button>
+        </form>
+    </div>
+
+    <div class="section">
+        <h3>Manage Questions</h3>
+        {% for q in questions %}
+        <div class="question-card">
+            <form method="POST" action="{{ url_for('admin_update_question', question_id=q['id']) }}" class="form-grid">
+                <label>Title</label>
+                <input type="text" name="title" value="{{ q['title'] }}" required>
+
+                <label>Question Language</label>
+                <select name="language" required>
+                    {% for lang_key, lang_label in supported_languages.items() %}
+                        <option value="{{ lang_key }}" {% if lang_key == q['language'] %}selected{% endif %}>{{ lang_label }}</option>
+                    {% endfor %}
+                </select>
+
+                <label>Faulty Code</label>
+                <textarea name="faulty_code" rows="8" required>{{ q['faulty_code'] }}</textarea>
+
+                <label>Correct Code</label>
+                <textarea name="correct_code" rows="8" required>{{ q['correct_code'] }}</textarea>
+
+                <label>Expected Output</label>
+                <textarea name="expected_output" rows="3" required>{{ q['expected_output'] }}</textarea>
+
+                <label>Points</label>
+                <input type="number" name="points" value="{{ q['points'] }}" min="1" required>
+
+                <p class="hint">Question ID: {{ q['id'] }} | Updated: {{ q['updated_at'] }}</p>
+                <div class="actions-inline">
+                    <button type="submit">Update Question</button>
+                </div>
+            </form>
+            <form method="POST" action="{{ url_for('admin_delete_question', question_id=q['id']) }}" onsubmit="return confirm('Delete this question and its submissions?');">
+                <button class="danger-btn" type="submit">Delete Question</button>
+            </form>
+        </div>
+        {% else %}
+            <p>No questions available.</p>
+        {% endfor %}
+    </div>
+
+    <div class="section">
+        <h3>Registered Students</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Roll Number</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>{{ user['id'] }}</td>
+                    <td>{{ user['name'] }}</td>
+                    <td>{{ user['email'] }}</td>
+                    <td>{{ user['roll_no'] }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('admin_delete_user', user_id=user['id']) }}" onsubmit="return confirm('Delete this user and all their submissions?');">
+                            <button class="danger-btn small-btn" type="submit">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">No students registered.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h3>All Submissions</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Submission ID</th>
+                    <th>Question</th>
+                    <th>Language</th>
+                    <th>Name</th>
+                    <th>Roll Number</th>
+                    <th>Score</th>
+                    <th>Output</th>
+                    <th>Submission Time</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sub in submissions %}
+                <tr>
+                    <td>{{ sub['id'] }}</td>
+                    <td>{{ sub['question_title'] or '-' }}</td>
+                    <td>{{ supported_languages.get(sub['language'], sub['language']) }}</td>
+                    <td>{{ sub['name'] }}</td>
+                    <td>{{ sub['roll_no'] }}</td>
+                    <td>{{ sub['score'] }}</td>
+                    <td><pre class="table-pre">{{ sub['output'] }}</pre></td>
+                    <td>{{ sub['submission_time'] }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('admin_delete_submission', submission_id=sub['id']) }}" onsubmit="return confirm('Delete this submission?');">
+                            <button class="danger-btn small-btn" type="submit">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="9">No submissions yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h3>Leaderboard</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Name</th>
+                    <th>Roll Number</th>
+                    <th>Total Score</th>
+                    <th>First Submission Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in leaderboard %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ row['name'] }}</td>
+                    <td>{{ row['roll_no'] }}</td>
+                    <td>{{ row['total_score'] }}</td>
+                    <td>{{ row['first_submission_time'] }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5">No leaderboard data.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

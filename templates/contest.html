@@ -1,0 +1,141 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="card">
+    <h2>Welcome, {{ session.get('user_name') }} ({{ session.get('roll_no') }})</h2>
+    <div class="timer">Time Left: <span id="timeLeft"></span></div>
+
+    {% if questions and selected_question %}
+    <div class="section question-tabs">
+        <h3>Questions</h3>
+        <div class="tab-wrap">
+            {% for q in questions %}
+                <a href="{{ url_for('contest', q=q['id']) }}" class="tab-link {% if q['id'] == selected_question['id'] %}active{% endif %}">
+                    {{ q['title'] }} ({{ q['points'] }} pts)
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="section">
+        <h3>Selected: {{ selected_question['title'] }}</h3>
+        <p class="hint">Recommended language: {{ supported_languages.get(selected_question['language'], selected_question['language']) }}</p>
+    </div>
+
+    <div class="section">
+        <h3>Faulty Python Code</h3>
+        <pre>{{ faulty_code }}</pre>
+    </div>
+
+    <div class="section">
+        <h3>Expected Output</h3>
+        <pre>{{ expected_output }}</pre>
+    </div>
+
+    {% if last_submission %}
+    <div class="section">
+        <h3>Last Submission</h3>
+        <p><strong>Score:</strong> {{ last_submission['score'] }}</p>
+        <p><strong>Output:</strong></p>
+        <pre>{{ last_submission['output'] }}</pre>
+        <p><strong>Time:</strong> {{ last_submission['submission_time'] }}</p>
+    </div>
+    {% endif %}
+
+    <div class="section">
+        <h3>Code Editor</h3>
+        <form method="POST" action="{{ url_for('submit') }}">
+            <input type="hidden" name="question_id" value="{{ selected_question['id'] }}">
+            <label>Submission Language</label>
+            <select name="language" {% if locked or already_correct %}disabled{% endif %}>
+                {% for lang_key, lang_label in supported_languages.items() %}
+                    <option value="{{ lang_key }}" {% if lang_key == selected_question['language'] %}selected{% endif %}>{{ lang_label }}</option>
+                {% endfor %}
+            </select>
+            <div class="editor-tools">
+                <button class="secondary-btn" type="button" id="resetEditor" {% if locked or already_correct %}disabled{% endif %}>Reset to Faulty Code</button>
+                <button class="secondary-btn" type="button" id="copyExpected">Copy Expected Output</button>
+            </div>
+            <textarea id="studentCode" name="code" rows="16" {% if locked or already_correct %}disabled{% endif %}>{{ faulty_code }}</textarea>
+            <p class="hint" id="lineCounter">Lines: 0</p>
+            <button type="submit" {% if locked or already_correct %}disabled{% endif %}>Submit</button>
+        </form>
+    </div>
+
+    {% if locked %}
+        <p class="danger">Contest is locked. Time is over.</p>
+    {% elif already_correct %}
+        <p class="success-text">You already solved this question. Further submissions for this question are disabled.</p>
+    {% endif %}
+    {% else %}
+        <p class="danger">No questions available. Ask admin to add questions from dashboard.</p>
+    {% endif %}
+</div>
+
+<script>
+    let totalSeconds = {{ time_left }};
+    const timeElement = document.getElementById('timeLeft');
+    const codeArea = document.getElementById('studentCode');
+    const lineCounter = document.getElementById('lineCounter');
+    const resetEditorBtn = document.getElementById('resetEditor');
+    const copyExpectedBtn = document.getElementById('copyExpected');
+    const defaultFaultyCode = {{ faulty_code | tojson }};
+    const expectedOutputValue = {{ expected_output | tojson }};
+
+    function updateLineCount() {
+        if (!codeArea || !lineCounter) return;
+        const lines = codeArea.value.split('\n').length;
+        lineCounter.textContent = 'Lines: ' + lines;
+    }
+
+    function updateTimer() {
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+        timeElement.textContent = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+
+        if (totalSeconds <= 0) {
+            const submitBtn = document.querySelector('button[type="submit"]');
+            const textarea = document.querySelector('textarea[name="code"]');
+            if (submitBtn) submitBtn.disabled = true;
+            if (textarea) textarea.disabled = true;
+            if (resetEditorBtn) resetEditorBtn.disabled = true;
+            return;
+        }
+        totalSeconds -= 1;
+    }
+
+    if (codeArea) {
+        codeArea.addEventListener('input', updateLineCount);
+        updateLineCount();
+    }
+
+    if (resetEditorBtn) {
+        resetEditorBtn.addEventListener('click', function () {
+            if (codeArea) {
+                codeArea.value = defaultFaultyCode;
+                updateLineCount();
+            }
+        });
+    }
+
+    if (copyExpectedBtn) {
+        copyExpectedBtn.addEventListener('click', async function () {
+            try {
+                await navigator.clipboard.writeText(expectedOutputValue);
+                copyExpectedBtn.textContent = 'Expected Output Copied';
+                setTimeout(function () {
+                    copyExpectedBtn.textContent = 'Copy Expected Output';
+                }, 1200);
+            } catch (error) {
+                copyExpectedBtn.textContent = 'Copy Failed';
+                setTimeout(function () {
+                    copyExpectedBtn.textContent = 'Copy Expected Output';
+                }, 1200);
+            }
+        });
+    }
+
+    updateTimer();
+    setInterval(updateTimer, 1000);
+</script>
+{% endblock %}
