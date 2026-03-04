@@ -88,7 +88,7 @@ SUPPORTED_LANGUAGES = {
     "java": "Java",
 }
 
-JUDGE0_URL = os.getenv("JUDGE0_URL", "https://judge0-ce.p.rapidapi.com/submissions")
+JUDGE0_URL = os.getenv("JUDGE0_URL", "https://ce.judge0.com/submissions")
 JUDGE0_API_KEY = os.getenv("JUDGE0_API_KEY", "")
 JUDGE0_API_HOST = os.getenv("JUDGE0_API_HOST", "judge0-ce.p.rapidapi.com")
 JUDGE0_POLL_INTERVAL_SECONDS = 0.5
@@ -647,9 +647,6 @@ def evaluate_code_with_judge0(user_code, language, expected_output, program_inpu
             "",
         )
 
-    if not JUDGE0_API_KEY:
-        return build_evaluation_response("runtime_error", "Judge0 API key is not configured", "")
-
     payload = {
         "source_code": user_code,
         "language_id": language_id,
@@ -793,20 +790,14 @@ def run_student_code(code_text, expected_output, language, program_input=""):
     if not input_payload.strip() and has_forbidden_input_usage(code_text, language):
         return build_evaluation_response("runtime_error", "Input not allowed for this problem", "")
 
-    # On serverless hosts (like Vercel), C compilers are usually unavailable.
-    # Prefer Judge0 for C execution when API credentials are configured.
-    if language == "c" and JUDGE0_API_KEY:
+    if IS_VERCEL and language in JUDGE0_LANGUAGE_IDS:
         return evaluate_code_with_judge0(code_text, language, expected_output, input_payload)
 
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
             if language == "c":
                 if not shutil.which("gcc"):
-                    return build_evaluation_response(
-                        "compile_error",
-                        "GCC is not installed on server.",
-                        "",
-                    )
+                    return evaluate_code_with_judge0(code_text, language, expected_output, input_payload)
 
                 source_file = os.path.join(temp_dir, "user_code.c")
                 executable_file = os.path.join(temp_dir, "user_code.exe")
@@ -861,7 +852,7 @@ def run_student_code(code_text, expected_output, language, program_input=""):
                 )
             elif language == "javascript":
                 if not shutil.which("node"):
-                    return build_evaluation_response("runtime_error", "Node.js is not installed on server", "")
+                    return evaluate_code_with_judge0(code_text, language, expected_output, input_payload)
                 source_file = os.path.join(temp_dir, "main.js")
                 with open(source_file, "w", encoding="utf-8") as temp_file:
                     temp_file.write(code_text)
@@ -875,7 +866,7 @@ def run_student_code(code_text, expected_output, language, program_input=""):
                 )
             elif language == "cpp":
                 if not shutil.which("g++"):
-                    return build_evaluation_response("compile_error", "G++ is not installed on server", "")
+                    return evaluate_code_with_judge0(code_text, language, expected_output, input_payload)
                 source_file = os.path.join(temp_dir, "main.cpp")
                 executable_file = os.path.join(temp_dir, "main.exe")
                 with open(source_file, "w", encoding="utf-8") as temp_file:
@@ -903,7 +894,7 @@ def run_student_code(code_text, expected_output, language, program_input=""):
                 )
             else:
                 if not shutil.which("javac") or not shutil.which("java"):
-                    return build_evaluation_response("compile_error", "Java JDK is not installed on server", "")
+                    return evaluate_code_with_judge0(code_text, language, expected_output, input_payload)
                 source_file = os.path.join(temp_dir, "Main.java")
                 with open(source_file, "w", encoding="utf-8") as temp_file:
                     temp_file.write(code_text)
