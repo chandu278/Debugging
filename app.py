@@ -1636,6 +1636,39 @@ def admin_clear_users():
     return redirect(url_for("admin_dashboard"))
 
 
+@app.route("/admin/users/delete-by-prefix", methods=["POST"])
+def admin_delete_users_by_prefix():
+    if not require_admin_login():
+        return redirect(url_for("admin_login"))
+
+    prefix = request.form.get("roll_prefix", "").strip()
+    if not prefix:
+        flash("Roll prefix is required.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    db = get_db()
+    users = db.execute(
+        "SELECT id FROM users WHERE roll_no LIKE ?",
+        (f"{prefix}%",),
+    ).fetchall()
+
+    if not users:
+        flash(f"No users found with roll prefix '{prefix}'.", "error")
+        return redirect(url_for("admin_dashboard"))
+
+    user_ids = [row["id"] for row in users]
+    placeholders = ",".join(["?"] * len(user_ids))
+
+    db.execute(f"DELETE FROM submissions WHERE user_id IN ({placeholders})", user_ids)
+    db.execute(f"DELETE FROM code_drafts WHERE user_id IN ({placeholders})", user_ids)
+    db.execute(f"DELETE FROM user_contests WHERE user_id IN ({placeholders})", user_ids)
+    db.execute(f"DELETE FROM users WHERE id IN ({placeholders})", user_ids)
+    db.commit()
+
+    flash(f"Deleted {len(user_ids)} user(s) with roll prefix '{prefix}'.", "success")
+    return redirect(url_for("admin_dashboard"))
+
+
 @app.route("/admin/export")
 def admin_export_csv():
     if not require_admin_login():

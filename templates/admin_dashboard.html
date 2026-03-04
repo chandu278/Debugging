@@ -4,6 +4,10 @@
     <h2>Admin Dashboard</h2>
     <div class="admin-top-actions">
         <a class="export-link" href="{{ url_for('admin_export_csv') }}">Export Results CSV</a>
+        <form method="POST" action="{{ url_for('admin_delete_users_by_prefix') }}" onsubmit="return confirm('Delete users matching this roll prefix and all their submissions?');">
+            <input type="text" name="roll_prefix" placeholder="ROLL_E2E_" required>
+            <button class="danger-btn small-btn" type="submit">Delete By Prefix</button>
+        </form>
         <form method="POST" action="{{ url_for('admin_clear_submissions') }}" onsubmit="return confirm('Delete all submissions?');">
             <button class="danger-btn small-btn" type="submit">Delete All Submissions</button>
         </form>
