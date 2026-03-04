@@ -34,7 +34,8 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 IS_VERCEL = os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))
-DATABASE = os.path.join(tempfile.gettempdir(), "database.db") if IS_VERCEL else os.path.join(BASE_DIR, "database.db")
+PACKAGED_DATABASE = os.path.join(BASE_DIR, "database.db")
+DATABASE = os.path.join(tempfile.gettempdir(), "database.db") if IS_VERCEL else PACKAGED_DATABASE
 DB_INITIALIZED = False
 
 
@@ -42,6 +43,8 @@ def ensure_db_initialized():
     global DB_INITIALIZED
     if DB_INITIALIZED:
         return
+    if IS_VERCEL and not os.path.exists(DATABASE) and os.path.exists(PACKAGED_DATABASE):
+        shutil.copy2(PACKAGED_DATABASE, DATABASE)
     init_db()
     DB_INITIALIZED = True
 
