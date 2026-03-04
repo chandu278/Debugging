@@ -3,6 +3,17 @@
 <div class="card">
     <h2>Welcome, {{ session.get('user_name') }} ({{ session.get('roll_no') }})</h2>
     <div class="timer">Time Left: <span id="timeLeft"></span></div>
+    {% if not contest_started %}
+        <form method="POST" action="{{ url_for('start_contest') }}" class="section">
+            <button type="submit">Participate Now</button>
+        </form>
+    {% endif %}
+
+    {% if is_disqualified %}
+        <p class="danger">You have been disqualified due to suspicious activity.</p>
+    {% elif contest_over %}
+        <p class="danger">Contest Time Over</p>
+    {% endif %}
 
     {% if questions and selected_question %}
     <div class="section question-tabs">
@@ -22,13 +33,18 @@
     </div>
 
     <div class="section">
-        <h3>Faulty Python Code</h3>
+        <h3>Faulty {{ supported_languages.get(selected_question['language'], selected_question['language']) }} Code</h3>
         <pre>{{ faulty_code }}</pre>
     </div>
 
     <div class="section">
         <h3>Expected Output</h3>
         <pre>{{ expected_output }}</pre>
+    </div>
+
+    <div class="section">
+        <h3>Program Input</h3>
+        <pre>{{ question_input if question_input else '(No input required)' }}</pre>
     </div>
 
     {% if last_submission %}
@@ -43,26 +59,53 @@
 
     <div class="section">
         <h3>Code Editor</h3>
-        <form method="POST" action="{{ url_for('submit') }}">
+        <form id="contestForm" method="POST" action="{{ url_for('submit') }}">
             <input type="hidden" name="question_id" value="{{ selected_question['id'] }}">
             <label>Submission Language</label>
             <select name="language" {% if locked or already_correct %}disabled{% endif %}>
                 {% for lang_key, lang_label in supported_languages.items() %}
-                    <option value="{{ lang_key }}" {% if lang_key == selected_question['language'] %}selected{% endif %}>{{ lang_label }}</option>
+                    <option value="{{ lang_key }}" {% if lang_key == selected_language %}selected{% endif %}>{{ lang_label }}</option>
                 {% endfor %}
             </select>
             <div class="editor-tools">
                 <button class="secondary-btn" type="button" id="resetEditor" {% if locked or already_correct %}disabled{% endif %}>Reset to Faulty Code</button>
                 <button class="secondary-btn" type="button" id="copyExpected">Copy Expected Output</button>
             </div>
-            <textarea id="studentCode" name="code" rows="16" {% if locked or already_correct %}disabled{% endif %}>{{ faulty_code }}</textarea>
+            <textarea id="studentCode" name="code" rows="16" {% if locked or already_correct %}disabled{% endif %}>{{ editor_code }}</textarea>
             <p class="hint" id="lineCounter">Lines: 0</p>
-            <button type="submit" {% if locked or already_correct %}disabled{% endif %}>Submit</button>
+            <div class="actions-inline">
+                <button class="secondary-btn" id="checkCodeBtn" type="button" {% if locked or already_correct %}disabled{% endif %}>Check Code</button>
+                <button type="submit" {% if locked or already_correct %}disabled{% endif %}>Submit</button>
+            </div>
         </form>
     </div>
 
-    {% if locked %}
-        <p class="danger">Contest is locked. Time is over.</p>
+    <div class="section" id="liveCompileFeedback" style="display:none;">
+        <h3>Check Result</h3>
+        <p id="liveCompileMessage"></p>
+        <pre id="liveCompileDetails" style="display:none;"></pre>
+    </div>
+
+    {% if compile_feedback %}
+    <div class="section">
+        <h3>Compile Result</h3>
+        {% if compile_feedback['status'] == 'success' %}
+            <p class="success-text">{{ compile_feedback['message'] }}</p>
+        {% else %}
+            <p class="danger">{{ compile_feedback['message'] }}</p>
+        {% endif %}
+        {% if compile_feedback['details'] %}
+            <pre>{{ compile_feedback['details'] }}</pre>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% if locked and contest_started and not is_disqualified and contest_over %}
+        <p class="danger">Contest Time Over</p>
+    {% elif not contest_started %}
+        <p class="hint">Click Participate Now to start your 30-minute timer.</p>
+    {% elif is_disqualified %}
+        <p class="danger">You have been disqualified due to suspicious activity.</p>
     {% elif already_correct %}
         <p class="success-text">You already solved this question. Further submissions for this question are disabled.</p>
     {% endif %}
@@ -71,15 +114,94 @@
     {% endif %}
 </div>
 
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script>
     let totalSeconds = {{ time_left }};
+    let contestStarted = {{ contest_started | tojson }};
+    let contestLocked = {{ locked | tojson }};
+    let isDisqualified = {{ is_disqualified | tojson }};
+    let violationCount = {{ violation_count | tojson }};
     const timeElement = document.getElementById('timeLeft');
+    const contestForm = document.getElementById('contestForm');
     const codeArea = document.getElementById('studentCode');
     const lineCounter = document.getElementById('lineCounter');
     const resetEditorBtn = document.getElementById('resetEditor');
     const copyExpectedBtn = document.getElementById('copyExpected');
     const defaultFaultyCode = {{ faulty_code | tojson }};
     const expectedOutputValue = {{ expected_output | tojson }};
+    const checkCodeBtn = document.getElementById('checkCodeBtn');
+    const languageSelect = document.querySelector('select[name="language"]');
+    const questionInput = document.querySelector('input[name="question_id"]');
+    const liveCompileFeedback = document.getElementById('liveCompileFeedback');
+    const liveCompileMessage = document.getElementById('liveCompileMessage');
+    const liveCompileDetails = document.getElementById('liveCompileDetails');
+    const violationCooldown = new Map();
+
+    const socket = window.io ? window.io() : null;
+    if (socket) {
+        socket.emit('join_contest', {});
+        socket.on('contest_status', function (status) {
+            syncContestStatus(status);
+        });
+        socket.on('contest_disqualified', function (payload) {
+            lockContestUI(payload && payload.message ? payload.message : 'You have been disqualified due to suspicious activity.');
+        });
+    }
+
+    function syncContestStatus(status) {
+        if (!status) return;
+        contestStarted = Boolean(status.started);
+        totalSeconds = Number(status.remaining_seconds || 0);
+        isDisqualified = Boolean(status.is_disqualified);
+        contestLocked = isDisqualified || Boolean(status.contest_over) || !contestStarted;
+        violationCount = Number(status.violation_count || violationCount || 0);
+
+        if (isDisqualified) {
+            lockContestUI('You have been disqualified due to suspicious activity.');
+        } else if (contestStarted && Number(status.contest_over)) {
+            lockContestUI('Contest Time Over');
+        }
+    }
+
+    function renderCompileFeedback(result, expectedOutput) {
+        if (!liveCompileFeedback || !liveCompileMessage || !liveCompileDetails) return;
+
+        liveCompileFeedback.style.display = 'block';
+        const isSuccess = result.status === 'success';
+        liveCompileMessage.className = isSuccess ? 'success-text' : 'danger';
+        if (result.status === 'success') {
+            liveCompileMessage.textContent = 'No errors detected. You can submit your code.';
+        } else if (result.status === 'Disqualified') {
+            liveCompileMessage.textContent = 'You have been disqualified due to suspicious activity.';
+        } else if (result.status === 'Time Over') {
+            liveCompileMessage.textContent = 'Contest Time Over';
+        } else if (result.status === 'wrong_output') {
+            liveCompileMessage.textContent = 'Wrong Answer';
+        } else if (result.status === 'compile_error') {
+            liveCompileMessage.textContent = 'Compilation Error';
+        } else if (result.status === 'timeout') {
+            liveCompileMessage.textContent = 'Time Limit Exceeded';
+        } else {
+            liveCompileMessage.textContent = 'Runtime Error';
+        }
+
+        let details = '';
+        if (result.status === 'wrong_output') {
+            details = 'Your Output:\n' + (result.output || '') + '\n\nExpected Output:\n' + expectedOutput;
+        } else if (result.status !== 'success' && result.error) {
+            details = result.error;
+        } else if (result.status !== 'success' && result.output) {
+            details = 'Program Output:\n' + result.output;
+        }
+
+        if (details) {
+            liveCompileDetails.style.display = 'block';
+            liveCompileDetails.textContent = details;
+        } else {
+            liveCompileDetails.style.display = 'none';
+            liveCompileDetails.textContent = '';
+        }
+    }
 
     function updateLineCount() {
         if (!codeArea || !lineCounter) return;
@@ -93,15 +215,73 @@
         const seconds = totalSeconds % 60;
         timeElement.textContent = String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
 
-        if (totalSeconds <= 0) {
-            const submitBtn = document.querySelector('button[type="submit"]');
-            const textarea = document.querySelector('textarea[name="code"]');
-            if (submitBtn) submitBtn.disabled = true;
-            if (textarea) textarea.disabled = true;
-            if (resetEditorBtn) resetEditorBtn.disabled = true;
+        if (!contestStarted || contestLocked || totalSeconds <= 0) {
+            if (contestStarted && totalSeconds <= 0) {
+                lockContestUI('Contest Time Over');
+                notifyTimeOver();
+            }
             return;
         }
         totalSeconds -= 1;
+    }
+
+    function lockContestUI(message) {
+        contestLocked = true;
+        if (checkCodeBtn) checkCodeBtn.disabled = true;
+        if (codeArea) codeArea.disabled = true;
+        if (resetEditorBtn) resetEditorBtn.disabled = true;
+        if (languageSelect) languageSelect.disabled = true;
+
+        const submitBtn = contestForm ? contestForm.querySelector('button[type="submit"]') : null;
+        if (submitBtn) submitBtn.disabled = true;
+
+        if (message) {
+            renderCompileFeedback({
+                status: isDisqualified ? 'runtime_error' : 'timeout',
+                error: message,
+                output: ''
+            }, expectedOutputValue);
+        }
+    }
+
+    async function fetchContestStatus() {
+        try {
+            const response = await fetch("{{ url_for('api_contest_status') }}");
+            const data = await response.json();
+            if (data && data.status === 'ok') {
+                syncContestStatus(data);
+            }
+        } catch (error) {
+        }
+    }
+
+    async function notifyTimeOver() {
+        await fetchContestStatus();
+    }
+
+    async function reportViolation(reason) {
+        if (!contestStarted || contestLocked || isDisqualified) return;
+        const now = Date.now();
+        const lastSeen = violationCooldown.get(reason) || 0;
+        if (now - lastSeen < 2500) return;
+        violationCooldown.set(reason, now);
+
+        try {
+            const response = await fetch("{{ url_for('api_contest_violation') }}", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ reason: reason })
+            });
+            const payload = await response.json();
+            if (payload && payload.violation_count !== undefined) {
+                violationCount = Number(payload.violation_count);
+            }
+            if (payload && payload.status === 'Disqualified') {
+                isDisqualified = true;
+                lockContestUI('You have been disqualified due to suspicious activity.');
+            }
+        } catch (error) {
+        }
     }
 
     if (codeArea) {
@@ -135,6 +315,98 @@
         });
     }
 
+    if (checkCodeBtn) {
+        checkCodeBtn.addEventListener('click', async function () {
+            if (!contestStarted || contestLocked) return;
+            const codeValue = codeArea ? codeArea.value : '';
+            const languageValue = languageSelect ? languageSelect.value : '';
+            const questionId = questionInput ? Number(questionInput.value) : null;
+
+            if (!codeValue.trim()) {
+                renderCompileFeedback({
+                    status: 'runtime_error',
+                    message: 'Code cannot be empty.',
+                    output: ''
+                }, expectedOutputValue);
+                return;
+            }
+
+            checkCodeBtn.disabled = true;
+            const previousText = checkCodeBtn.textContent;
+            checkCodeBtn.textContent = 'Checking...';
+
+            try {
+                const response = await fetch("{{ url_for('api_evaluate_code') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        question_id: questionId,
+                        code: codeValue,
+                        language: languageValue
+                    })
+                });
+
+                const result = await response.json();
+                renderCompileFeedback(result, expectedOutputValue);
+            } catch (error) {
+                renderCompileFeedback({
+                    status: 'runtime_error',
+                    message: 'Unable to evaluate code right now.',
+                    output: ''
+                }, expectedOutputValue);
+            } finally {
+                checkCodeBtn.disabled = false;
+                checkCodeBtn.textContent = previousText;
+            }
+        });
+    }
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            reportViolation('Tab switch detected');
+        }
+    });
+
+    window.addEventListener('blur', function () {
+        reportViolation('Window focus lost');
+    });
+
+    document.addEventListener('contextmenu', function (event) {
+        event.preventDefault();
+    });
+
+    document.addEventListener('copy', function (event) {
+        event.preventDefault();
+        reportViolation('Copy attempt detected');
+    });
+
+    document.addEventListener('paste', function (event) {
+        event.preventDefault();
+        reportViolation('Paste attempt detected');
+    });
+
+    document.addEventListener('keydown', function (event) {
+        const blockedInspect = event.key === 'F12' ||
+            (event.ctrlKey && event.shiftKey && ['I', 'J', 'C'].includes((event.key || '').toUpperCase())) ||
+            (event.ctrlKey && (event.key || '').toUpperCase() === 'U');
+
+        if (blockedInspect) {
+            event.preventDefault();
+            reportViolation('DevTools shortcut detected');
+        }
+    });
+
+    setInterval(function () {
+        const widthDiff = window.outerWidth - window.innerWidth;
+        const heightDiff = window.outerHeight - window.innerHeight;
+        if (widthDiff > 160 || heightDiff > 160) {
+            reportViolation('DevTools open detected');
+        }
+    }, 1500);
+
+    fetchContestStatus();
     updateTimer();
     setInterval(updateTimer, 1000);
 </script>

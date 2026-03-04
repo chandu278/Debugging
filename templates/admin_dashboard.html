@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+                                                                                                                                                                                                                    {% extends 'base.html' %}
 {% block content %}
 <div class="card">
     <h2>Admin Dashboard</h2>
@@ -38,6 +38,9 @@
             <label>Correct Code (admin reference)</label>
             <textarea name="correct_code" rows="8" required></textarea>
 
+            <label>Program Input (optional, stdin)</label>
+            <textarea name="input_data" rows="3" placeholder="Example: 5 10\n"></textarea>
+
             <label>Expected Output</label>
             <textarea name="expected_output" rows="3" required></textarea>
 
@@ -68,6 +71,9 @@
 
                 <label>Correct Code</label>
                 <textarea name="correct_code" rows="8" required>{{ q['correct_code'] }}</textarea>
+
+                <label>Program Input (optional, stdin)</label>
+                <textarea name="input_data" rows="3">{{ q['input_data'] }}</textarea>
 
                 <label>Expected Output</label>
                 <textarea name="expected_output" rows="3" required>{{ q['expected_output'] }}</textarea>
@@ -189,4 +195,13 @@
         </table>
     </div>
 </div>
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+    if (window.io) {
+        const socket = window.io();
+        socket.on('leaderboard_update', function () {
+            window.location.reload();
+        });
+    }
+</script>
 {% endblock %}
