@@ -33,7 +33,17 @@ app.secret_key = "offline_debug_contest_secret_key"
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, "database.db")
+IS_VERCEL = os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))
+DATABASE = os.path.join(tempfile.gettempdir(), "database.db") if IS_VERCEL else os.path.join(BASE_DIR, "database.db")
+DB_INITIALIZED = False
+
+
+def ensure_db_initialized():
+    global DB_INITIALIZED
+    if DB_INITIALIZED:
+        return
+    init_db()
+    DB_INITIALIZED = True
 
 CONTEST_DURATION_MINUTES = 30
 CONTEST_ID = 1
@@ -92,6 +102,7 @@ JUDGE0_LANGUAGE_IDS = {
 
 
 def get_db():
+    ensure_db_initialized()
     if "db" not in g:
         g.db = sqlite3.connect(DATABASE)
         g.db.row_factory = sqlite3.Row
@@ -1667,5 +1678,5 @@ def admin_export_csv():
 
 
 if __name__ == "__main__":
-    init_db()
+    ensure_db_initialized()
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
